@@ -1,0 +1,4 @@
+if ( x < 5 )
+write num1 ;
+end ;
+$$

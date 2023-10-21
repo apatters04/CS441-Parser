@@ -1,0 +1,165 @@
+#lang racket
+(require data/maybe)   ; for maybe type 
+(require data/either)  ; for either type 
+(require data/monad)   ; for chain function 
+(require megaparsack/parser-tools/lex)
+(require megaparsack megaparsack/text)
+
+(define rsrvd-words '("if" "while" "read" "write" "goto" "gosub" "return" "break" "end"))
+
+(define (parse filename) ; reading in file
+  (chain iter-file(read-file filename)))
+
+(define (read-file file-path); reads in file, breaks file into lines, and each line in a list of strings
+  (cond
+    ((file-exists? file-path)
+     (success
+       (map(lambda (line) (string-split line)) (file->lines file-path))))
+   (else
+     (failure "File not found")))) ;provide failure if file does not exist
+
+(define (iter-file L)
+  (program?(first L)))
+
+;program? -> linelist $$
+(define (program? L)
+  (reserved-word? L rsrvd-words))
+
+;linelist? -> line linelist | epsilon
+        
+
+;line? -> label stmt linetail
+
+
+(define (reserved-word? L rsrvd-words) ; parse first token of a line if its a statement, if not check if its an id
+  (cond
+    [(member (first L) rsrvd-words)
+     (success (which-reserved? (first L) L))]
+    [(id? (first L)) (etail? (first (rest L)) (rest L))]
+    (else
+     (failure 'no-program))))
+
+(define (which-reserved? token L)
+  (cond
+    ;[(equal? token "if") (if? string L)]
+    ;[(equal? token "while") (while? token L)]
+    [(equal? token "read") (read? token (rest L))] ;if token is read, run read function, copy this format for the rest of reserved words
+    [(equal? token "write") (write? token L)]
+    [(equal? token "goto") (goto? token L)]
+    [(equal? token "gosub") (gosub? token L)]
+    [(equal? token "return") (return? token L)]
+    [(equal? token "break") (break? token L)]
+    [(equal? token "end") (end? token L)]
+    ))
+
+;RESERVED WORD HANDLING
+(define (read? token L) 
+  (cond
+    ((equal? token "read")
+     (id? (first L)) ;not the final solution to reading the next token as an ID also does not factor in semicolon, but it works for now until someone shows me how to iterate better :)
+     (success 'stmt))
+  (else
+   (failure 'error))))
+
+(define (write? token L)
+  (cond
+    [(expr? (first L) (rest L)) (success 'write)]
+    (else
+     (failure 'write-error))))
+
+(define (goto? token L) 
+  (cond
+    ((equal? token "goto")
+     (id? (rest L)) ;not the final solution to reading the next token as an ID also does not factor in semicolon, but it works for now until someone shows me how to iterate better :)
+     (success 'stmt))
+  (else
+   (failure 'error))))
+
+(define (gosub? token L) 
+  (cond
+    ((equal? token "gosub")
+     (id? (rest L)) ;not the final solution to reading the next token as an ID also does not factor in semicolon, but it works for now until someone shows me how to iterate better :)
+     (success 'stmt))
+  (else
+   (failure 'error))))
+
+(define (return? token L)
+  (cond
+    [(equal? (last L)  ";") (success 'return-stmt)]
+    (failure 'Missing-semi-colon)))
+
+(define (break? token L)
+    (cond
+    [(equal? (last L)  ";") (success 'return-stmt)]
+    (failure 'Missing-semi-colon)))
+
+(define (end? token L)
+    (cond
+    [(equal? (last L)  ";") (success 'return-stmt)]
+    (failure 'Missing-semi-colon)))
+
+;stmt? -> id = expr; | if (boolean) stmt; | while (boolean) linelist endwhile; | read id; | write expr; | goto id; | gosub id; | return; | break; | end;
+
+
+;label? -> id: | epsilon
+(define (label? token)
+  (define n (string-length token))
+  (let
+      ([i(id?(substring token 0 (- n 1)))]) ;checks if string before colon is an ID
+  (let
+    ([m(equal? (string-ref token(sub1 (string-length token))) #\:)]) ;checking if last char of string is a colon
+  (cond ((and i m) (success 'label)) ;if string is an ID and the last char is a colon, then it is a label
+  (else
+   (failure 'error))))))
+
+;linetail? -> stmt+ | epsilon
+
+;boolean? -> true | false | expr bool-op expr
+
+;bool-op? -> < | > | >= | <= | <> | =
+
+;expr? -> id etail | num etail | (expr)
+(define (expr? token L)
+  (cond
+    [(id? token) (success (etail? (first L) L))]
+    [(is-num? token) (success (etail? (first L) L))]
+    (failure 'no-expr)))
+  
+
+;etail?-> + expr | - expr | * expr | / expr | epsilon
+
+(define (etail? token L)
+  (cond
+    [(add-op? (first L)) (id? (first(rest L)))]
+    [(mult-op? (first L)) (id? (first(rest L)))]
+    ))
+
+(define (add-op? token)
+  (cond
+    [{equal? token "+"} #t]
+    [{equal? token "-"} #t]
+
+    (else
+     nothing)))
+
+(define (mult-op? token)
+  (cond
+    [{equal? token "*"} #t]
+    [{equal? token "/"} #t]
+
+    (else
+     nothing)))
+    
+;id? -> [a-zA-z] [a-zA-Z0-9]*
+(define (id? token)
+  (match token
+    [(regexp #rx"^([a-zA-Z][a-zA-Z0-9]*)") (success token)]
+    (failure (is-num? token)))) ; if token isnt a reserved word or an ID, finally check if its a num
+
+;num? checking if token is a number : numsign digit digit*
+(define (is-num? token)
+  (cond
+    ((number? (string->number token)) ;turns token into a string, check if this conversion is a number, accounts for +/-/epsilon numsign
+     (success token))
+  (else
+   (failure 'not-num))))
